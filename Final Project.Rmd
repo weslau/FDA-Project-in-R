@@ -120,6 +120,30 @@ match the names of the recall enforcement database to those of the companies iss
 
 ```{r match names}
 ##read in the CSV for warning letters
-read_csv()
+
+warningletter <- read_csv("Warning Letters  FDA past 5 years.csv",col_names = T, 
+                     na = "-1", col_types = cols(
+    `Letter Issue Date` = col_date(format = "%m/%d/%Y"),
+    `Company Name` = col_character(),
+    `Issuing Office` = col_factor(levels = NULL),
+    `Regulated Product` = col_character(),
+    Subject = col_character(),
+    `Letter Type` = col_factor(levels = NULL)
+))
+
+##get the list of names for companies that have warning letters, only for year 2019
+companies_2019 <- warningletter %>%
+  filter(warningletter$`Letter Issue Date`>=as.Date("2019-01-01")) %>% 
+  select(`Company Name`)
+
+companies_2019 <- unique(companies_2019)
+head(companies_2019)
+
+##compare this list to the names you got in database_recalls_2019
+
+#find a way to flatten that list so that you can read the "recalling_firm" in each entry
+##you need to rbind the long list database_recalls_2019 to a new dataframe
+database_flat <- lapply(1:length(database_recalls_2019), function(x) database_recalls_2019[[x]][-c(14)]) %>% rbindlist(fill = T)
 
 ```
+
