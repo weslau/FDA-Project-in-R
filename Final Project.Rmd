@@ -15,6 +15,9 @@ library(tidyverse)
 library(httr)
 library(stringr)
 library(readr)
+
+source("final_debug.R")
+
 ```
 
 ## Getting the Json data and flattening
@@ -101,6 +104,7 @@ url_test <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_ke
 recalls_2019 <- GET(url_test)
 recalls_2019_dataset <- fromJSON(content(recalls_2019,"text"), simplifyVector = F) ##transform the data from GET url into JSON list
 total_results <- recalls_2019_dataset$meta$results$total##num of results you want to add to database
+
 database_recalls_2019 <- vector("list", 100*ceiling(total_results/100)) ##initialize list that is total_results
 for (i in 1:ceiling(total_results/100)) {
   url3 <- paste('https://api.fda.gov/device/enforcement.json?api_key=',API_key,
