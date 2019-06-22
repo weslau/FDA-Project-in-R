@@ -14,6 +14,7 @@ library(tidyverse)
 
 library(httr)
 library(stringr)
+library(readr)
 ```
 
 ## Getting the Json data and flattening
@@ -48,11 +49,9 @@ recalls_enforce_data <- recalls_enforce_data$results
 
 ## Iterating for many years data
 
-we can write script to concanate the data from each year if it exceeds API call limits: With an API key: 240 requests per minute, per key. 120000 requests per day, per key. (just write a delay function for a minute)
+we can write script to create a database of recalls from each year if it exceeds API call limits. With an API key: 240 requests per minute, per key. 120000 requests per day, per key. We have not experienced requests being limited  but can write a delay function in the future.
 
-right now only works for limit = 100
-
-then combine all the lists into a super list of size meta->results->total
+We have combined all the lists into a database of recalls
 
 ```{r pressure, echo=T}
 limit <- 100
@@ -94,13 +93,33 @@ for (i in 1:ceiling(total_results/100)) {
 # database_recalls[1:100] <- recalls_enforce_data2[1:100]
 # head(database_recalls)
 
+##Get the data for 2019
+start_date <- '2019-01-01' ##start date of recall search. Format is YYYY-MM-DD
+end_date <- '2019-12-31' ##end date of recall search. Format is YYYY-MM-DD
+daterange <- paste('[',start_date,'+TO+',end_date,']', sep="")
+url_test <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:',daterange,'&limit=',1,'&skip=',0,sep = "")
+recalls_2019 <- GET(url_test)
+recalls_2019_dataset <- fromJSON(content(recalls_2019,"text"), simplifyVector = F) ##transform the data from GET url into JSON list
+total_results <- recalls_2019_dataset$meta$results$total##num of results you want to add to database
+database_recalls_2019 <- vector("list", 100*ceiling(total_results/100)) ##initialize list that is total_results
+for (i in 1:ceiling(total_results/100)) {
+  url3 <- paste('https://api.fda.gov/device/enforcement.json?api_key=',API_key,
+                '&search=report_date:',daterange,'&limit=',limit,'&skip=',(i-1)*100,sep = "")
+  recalls_2019 <- GET(url3)
+  recalls_2019_dataset <- fromJSON(content(recalls_2019,"text"), simplifyVector = F)
+  recalls_2019_dataset <- recalls_2019_dataset$results
+  database_recalls_2019[(100*i-99):(100*i)] <- recalls_2019_dataset[1:100]
+  
+  #somehow, it didnt work the first time, but rerunning it gave me correct length results
+}
 ```
 
 ## Making sure that the names from the database_recalls match that of warning letters
 
-match the names of the recall enforcement database to those of the companies issued warning letters (csv)
+match the names of the recall enforcement database to those of the companies issued warning letters.
 
 ```{r match names}
-
+##read in the CSV for warning letters
+read_csv()
 
 ```
