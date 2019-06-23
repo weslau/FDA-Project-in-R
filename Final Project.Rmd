@@ -117,7 +117,6 @@ for (i in 1:ceiling(total_results/100)) {
   #somehow, it didnt work the first time, but rerunning it gave me correct length results
 }
 ```
-
 ## Making sure that the names from the database_recalls match that of warning letters
 
 match the names of the recall enforcement database to those of the companies issued warning letters.
@@ -135,19 +134,50 @@ warningletter <- read_csv("Warning Letters  FDA past 5 years.csv",col_names = T,
     `Letter Type` = col_factor(levels = NULL)
 ))
 
-##get the list of names for companies that have warning letters, only for year 2019
-companies_2019 <- warningletter %>%
-  filter(warningletter$`Letter Issue Date`>=as.Date("2019-01-01")) %>% 
-  select(`Company Name`)
+##rename the column variables for dplyr ease, save in place
+warningletter <- rename(warningletter,
+                        letter_issue_date = 'Letter Issue Date',
+                        comp_name = 'Company Name',
+                        issue_office = 'Issuing Office',
+                        product = 'Regulated Product',
+                        subject = 'Subject')
 
-companies_2019 <- unique(companies_2019)
-head(companies_2019)
+
+##Find the issuing offices that contain "Device" in the title
+temp <- warningletter %>% 
+  count(issue_office) %>% 
+  select(issue_office)
+temp <- str_subset(string = temp$issue_office, pattern = 'Device') ##this is what you want to filter from warning letters dataset
+
+
+##get the list of names for companies that have warning letters, for time period 1/1/16 to 6/4/19
+##filter by FDA issuing office has "Device" in its name
+companies_2019 <- warningletter %>%
+  filter(warningletter$letter_issue_date>=as.Date("2016-01-01") & warningletter$issue_office %in% temp) %>% 
+  arrange(comp_name)
+
+bool_multiplewarns <- (length(companies_2019) != length(unique(companies_2019))) ##bool is TRUE if there are duplicate values. i.e. the same company has multiple warning letters.
+
+##check for mistyped company names data manually -> there are no misttypes/duplicates in companies_2019
 
 ##compare this list to the names you got in database_recalls_2019
 
 #find a way to flatten that list so that you can read the "recalling_firm" in each entry
 ##you need to rbind the long list database_recalls_2019 to a new dataframe
-database_flat <- lapply(1:length(database_recalls_2019), function(x) database_recalls_2019[[x]][-c(14)]) %>% rbindlist(fill = T)
+database_flat <- lapply(1:length(database_recalls), function(x) database_recalls[[x]][-c(14)]) %>% rbindlist(fill = T)
+
+database_flat %>% 
+  count(recalling_firm)
+
+companies <- database_flat %>% 
+  count(recalling_firm) %>% 
+  arrange(desc(n))
+companies <- companies$recalling_firm
+
+temp_combo <- str_subset(string = companies, pattern = "Abbott")
+temp_combo[2:3]
+investigate <- database_flat[database_flat$recalling_firm == temp_combo[3]]
+
 
 ```
 
