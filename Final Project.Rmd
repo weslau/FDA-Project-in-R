@@ -11,29 +11,17 @@ library(magrittr)
 library(jsonlite)
 library(data.table)
 library(tidyverse)
-
 library(httr)
 library(stringr)
 library(readr)
-
 source("final_debug.R")
-
 ```
 
-## Getting the Json data and flattening
+## Getting the JSON Data and Flattening
 
-At first, we wanted to get the JSON file from the recalls API, but i don't see any searchable field that specifies the date that the recall was initiated. We will use recall initiation report API because we are interested in only certain dates.
+We want to get the JSON file from the recalls API. We will use recall initiation report API because we are interested in only certain dates.
 
 ```{r cars}
-##API key
-##Congrats! Your API Key is:cSObof0mBwKrh4eBnZCZMqPDfleIKchCmRjU48Vf
-##options(stringsAsFactors = FALSE)
-##path <- 'https://api.fda.gov/device/enforcement.json?'
-
-##recalls_enforce <- GET('https://api.fda.gov/device/enforcement.json?api_key=cSObof0mBwKrh4eBnZCZMqPDfleIKchCmRjU48Vf&search=report_date:[2015-01-01+TO+2015-12-31]&limit=100')
-
-
-##recalls_enforce <- GET('https://api.fda.gov/device/enforcement.json?api_key=cSObof0mBwKrh4eBnZCZMqPDfleIKchCmRjU48Vf&search=report_date:+[20150101+TO+20161231+]&limit=100') ##must put a + sign before the []'s in order to get multiple result queries back
 
 API_key <- 'MA7Lr5hXfkIWZLcdasrZ6Tf0U0zwPAPtZ1ijYVBA'
 start_date <- '2015-01-01' ##start date of recall search. Format is YYYY-MM-DD
@@ -50,96 +38,76 @@ recalls_enforce_data <- recalls_enforce_data$results
 ##checked that recalls_enforce_data is list of 100 elements
 ```
 
-## Iterating for many years data
+## Iterating API calls to form one database for recalls
 
-we can write script to create a database of recalls from each year if it exceeds API call limits. With an API key: 240 requests per minute, per key. 120000 requests per day, per key. We have not experienced requests being limited  but can write a delay function in the future.
-
-We have combined all the lists into a database of recalls
-
+I have written a script to create a database of recalls for a particular date range. It must comply with the API restrictions, which limits GET requests to 100 results per request. Furthermore, I signed up for an authentication key (API key) so the API limit is 240 requests per minute, per key. 120000 requests per day, per key. 
+So far, after I limited my request results to be under 100, and have not experienced my API calls being slowed down or limited. If this changes in the future, I can introduce delays to the for loop that creates "database_recalls".
+I combined the lists of recalls into a database of recalls called "database_recalls". If you want to change the time period for the search of recalls, all you have to do is change the STARTDATE and ENDDATE global variables to the specific dates of interest. Make sure that ENDDATE comes after STARTDATE. 
+The warning that appears after running the code just indicates that 'more_code_info' column 19 is missing in some of the rows of database_recalls. It is acceptable to fil them with NA data for now.
 ```{r pressure, echo=T}
-limit <- 100
-skip <- limit
 
-url_test <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:',daterange,'&limit=',limit,'&skip=',skip,sep = "")
+##function to construct the URL with the given parameters
+create_url <-  function(start_date, end_date, API_key, limit, skip) {
+  ##API_key <- 'MA7Lr5hXfkIWZLcdasrZ6Tf0U0zwPAPtZ1ijYVBA'
+  ##start_date <- '2015-01-01' ##start date of recall search. Format is YYYY-MM-DD
+  ##end_date <- '2015-12-31' ##end date of recall search. Format is YYYY-MM-DD
+  daterange <- paste('[',start_date,'+TO+',end_date,']', sep="")
+  url <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key,
+               '&search=report_date:',daterange,'&limit=',limit,'&skip=',skip,sep = "")
+  return(url)
+}
+
+
+##still need global variables
+LIMIT <- 100 ##do not change unless you also change the way the loop stores data
+APIKEY <- 'MA7Lr5hXfkIWZLcdasrZ6Tf0U0zwPAPtZ1ijYVBA'
+STARTDATE <- '2019-01-01' ##start date of recall search. Format is YYYY-MM-DD
+ENDDATE <- '2019-12-31' ##end date of recall search. Format is YYYY-MM-DD
+
+url_test <- create_url(start_date = STARTDATE, end_date = ENDDATE, API_key = APIKEY,
+           limit = '1', skip = '0')
+
 recalls_enforce2 <- GET(url_test)
 recalls_enforce_data2 <- fromJSON(content(recalls_enforce2,"text"), simplifyVector = F) ##transform the data from GET url into JSON list
 total_results <- recalls_enforce_data2$meta$results$total##num of results you want to add to database
-recalls_enforce_data2 <- recalls_enforce_data2$results
-
-##typeof(recalls_enforce_data2)
 
 database_recalls <- vector("list", 100*ceiling(total_results/100)) ##initialize list that is total_results long, rounded up to the nearest 100
 
-##make sure to check for when you skip to teh 2500th entry and there are no more results left, what will API give you
-
-match(NULL,database_recalls)##check how many are NULL
-
-
-##make a loop to join lists of 100
 for (i in 1:ceiling(total_results/100)) {
-  url3 <- paste('https://api.fda.gov/device/enforcement.json?api_key=',API_key,
-                '&search=report_date:',daterange,'&limit=',limit,'&skip=',(i-1)*100,sep = "")
-  recalls_enforce3 <- GET(url3)
-  recalls_enforce_data3 <- fromJSON(content(recalls_enforce3,"text"), simplifyVector = F)
-  recalls_enforce_data3 <- recalls_enforce_data3$results
-  database_recalls[(100*i-99):(100*i)] <- recalls_enforce_data3[1:100]
-  
-  #somehow, after a delay in reading, there are all values in your database_recalls
-  
+  url_temp <- create_url(start_date = STARTDATE, end_date = ENDDATE, API_key = APIKEY,
+                         limit = as.character(LIMIT), skip = as.character((i-1)*100))
+  recalls_enforce_temp <- GET(url_temp)
+  recalls_enforce_data <- fromJSON(content(recalls_enforce_temp,"text"), simplifyVector = F)
+  recalls_enforce_data <- recalls_enforce_data$results
+  database_recalls[(100*i-99):(100*i)] <- recalls_enforce_data[1:100]##database_recalls stores your complete list of recalls
 }
 
-# ##test it out on one set of 100 -> it works.
-# url_test <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:',daterange,'&limit=',limit,'&skip=',skip,sep = "")
-# recalls_enforce2 <- GET(url_test)
-# recalls_enforce_data2 <- fromJSON(content(recalls_enforce2,"text"), simplifyVector = F) ##transform the data from GET url into JSON list
-# recalls_enforce_data2 <- recalls_enforce_data2$results
-# database_recalls[1:100] <- recalls_enforce_data2[1:100]
-# head(database_recalls)
-
-##Get the data for 2019
-start_date <- '2019-01-01' ##start date of recall search. Format is YYYY-MM-DD
-end_date <- '2019-12-31' ##end date of recall search. Format is YYYY-MM-DD
-daterange <- paste('[',start_date,'+TO+',end_date,']', sep="")
-url_test <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:',daterange,'&limit=',1,'&skip=',0,sep = "")
-recalls_2019 <- GET(url_test)
-recalls_2019_dataset <- fromJSON(content(recalls_2019,"text"), simplifyVector = F) ##transform the data from GET url into JSON list
-total_results <- recalls_2019_dataset$meta$results$total##num of results you want to add to database
-
-database_recalls_2019 <- vector("list", 100*ceiling(total_results/100)) ##initialize list that is total_results
-for (i in 1:ceiling(total_results/100)) {
-  url3 <- paste('https://api.fda.gov/device/enforcement.json?api_key=',API_key,
-                '&search=report_date:',daterange,'&limit=',limit,'&skip=',(i-1)*100,sep = "")
-  recalls_2019 <- GET(url3)
-  recalls_2019_dataset <- fromJSON(content(recalls_2019,"text"), simplifyVector = F)
-  recalls_2019_dataset <- recalls_2019_dataset$results
-  database_recalls_2019[(100*i-99):(100*i)] <- recalls_2019_dataset[1:100]
-  
-  #somehow, it didnt work the first time, but rerunning it gave me correct length results
-}
+#find a way to flatten that list so that you can read the "recalling_firm" in each entry
+##you need to rbind the long list database_recalls_2019 to a new dataframe
+database_flat <- lapply(1:length(database_recalls), function(x) database_recalls[[x]][-c(14)]) %>% rbindlist(fill = T)
 ```
-## Making sure that the names from the database_recalls match that of warning letters
+## Creating the Warning Letters Database and Ensuring Data Integrity
 
 match the names of the recall enforcement database to those of the companies issued warning letters.
 
 ```{r match names}
 ##read in the CSV for warning letters
-
-warningletter <- read_csv("Warning Letters  FDA past 5 years.csv",col_names = T, 
+warningletter <- read_csv("Warning Letters  FDA.csv",col_names = T, 
                      na = "-1", col_types = cols(
+    `Posted Date` = col_date(format = "%m/%d/%Y"),                   
     `Letter Issue Date` = col_date(format = "%m/%d/%Y"),
     `Company Name` = col_character(),
     `Issuing Office` = col_factor(levels = NULL),
-    `Regulated Product` = col_character(),
     Subject = col_character(),
     `Letter Type` = col_factor(levels = NULL)
 ))
 
 ##rename the column variables for dplyr ease, save in place
 warningletter <- rename(warningletter,
+                        post_date = 'Posted Date',
                         letter_issue_date = 'Letter Issue Date',
                         comp_name = 'Company Name',
                         issue_office = 'Issuing Office',
-                        product = 'Regulated Product',
                         subject = 'Subject')
 
 
@@ -150,34 +118,42 @@ temp <- warningletter %>%
 temp <- str_subset(string = temp$issue_office, pattern = 'Device') ##this is what you want to filter from warning letters dataset
 
 
-##get the list of names for companies that have warning letters, for time period 1/1/16 to 6/4/19
+##get the list of names for companies that have warning letters, for time period 1/1/16 to 6/23/19
 ##filter by FDA issuing office has "Device" in its name
-companies_2019 <- warningletter %>%
+letter_companies <- warningletter %>%
   filter(warningletter$letter_issue_date>=as.Date("2016-01-01") & warningletter$issue_office %in% temp) %>% 
   arrange(comp_name)
 
-bool_multiplewarns <- (length(companies_2019) != length(unique(companies_2019))) ##bool is TRUE if there are duplicate values. i.e. the same company has multiple warning letters.
+warn_list <- letter_companies$comp_name ##list of companies that have warning letters issued from medical device offices of FDA
 
-##check for mistyped company names data manually -> there are no misttypes/duplicates in companies_2019
+bool_multiplewarns <- (length(warn_list) != length(unique(warn_list))) ##bool is TRUE if there are duplicate values. i.e. the same company has multiple warning letters.
 
-##compare this list to the names you got in database_recalls_2019
+##check for mistyped company names data manually -> saw there are no mistyped names/duplicates in warn_list
 
-#find a way to flatten that list so that you can read the "recalling_firm" in each entry
-##you need to rbind the long list database_recalls_2019 to a new dataframe
-database_flat <- lapply(1:length(database_recalls), function(x) database_recalls[[x]][-c(14)]) %>% rbindlist(fill = T)
-
-database_flat %>% 
-  count(recalling_firm)
-
+##create list of companies from recalls database (database_flat)
 companies <- database_flat %>% 
   count(recalling_firm) %>% 
   arrange(desc(n))
 companies <- companies$recalling_firm
 
+
+
+
+##turn the letter_companies database abbott st jude into format from recalls database
+##letter_companies is a dataframe, with comp_name column that is of type CHAR
 temp_combo <- str_subset(string = companies, pattern = "Abbott")
-temp_combo[2:3]
+recode(letter_companies$comp_name,"Abbott (St Jude Medical Inc.)"=temp_combo[6]) ##is there a way to not type out what the warning letter name was to recode
+temp_combo <- str_subset(string = companies, pattern = "Zeller")
+#temp_combo
+##compare companies (from recalls database) to companies_2019$comp_name (from warning letters database)
+##our goal is to check each one of the 77 warning letter companies against recalls database companies, then recode them to the same name in recalls database if found
+
+##clean up the database for recalls, see if any are duplicates
+temp_combo <- str_subset(string = companies, pattern = "Abbott")
+##temp_combo[2:3]
 investigate <- database_flat[database_flat$recalling_firm == temp_combo[3]]
 
 
+##transforming date columns of database_flat into date objects
 ```
 
