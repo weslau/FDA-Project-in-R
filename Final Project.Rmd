@@ -1,50 +1,91 @@
 ---
-title: "405 Final Project"
+title: "Stats 405 - Final Project FDA Databases"
 author: "Wesley Lau"
+UID: "UID# 804049796"
 date: "6/17/2019"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, echo=FALSE, results = 'hide',warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
 library(magrittr)
 library(jsonlite)
 library(data.table)
-library(tidyverse)
 library(httr)
 library(stringr)
 library(readr)
-source("final_debug.R")
+library(tidyverse)
+#source("final_debug.R")
 ```
 
-## Getting the JSON Data and Flattening
+## Background and Motivation
 
-We want to get the JSON file from the recalls API. We will use recall initiation report API because we are interested in only certain dates.
+>“When FDA finds that a manufacturer has significantly violated FDA regulations, FDA notifies the manufacturer. This notification is often in the form of a Warning Letter."
+- [FDA](https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/warning-letters/about-warning-and-close-out-letters)
 
-```{r cars}
+Warning letters are typically costly and require a lot of resources for manufacturers to resolve to the FDA’s satisfaction. Furthermore, the FDA may stop the approval process for all other products from the company while it still has an open warning letter. Therefore, any insights on how the FDA chooses companies to give warning letters to would be invaluable to businesses that manufacture regulated products.
+
+The first step to building a forecasting model is to collect good quality data. This is the main motivation of my project, to collect data from the FDA website in an accurate and reproducible way. My goal is to make the the data acquisition and cleaning process as transparent and reproducible as possible so I can easily maintain and update it for future analysis. 
+
+## SMART Goal
+### Specific
+For this project, I built a database for recall events and for warning letters. More importantly, I documented the process steps and assumptions I made so that so that I will be able update the database easily for future projects. Eventually, these databases can be used to analyze if data the device recalls database is helpful to predict whether the company will receive a warning letter from the FDA or not.
+
+### Data Source
+The datasets can be accessed from the FDA’s website below. Since the recall database is available to access through an API, I created a script to query the API for this dataset in a way that makes the process reproducible for later updates.  A codebook for both databases is attached in Appendix A.
+
+[recall database](https://open.fda.gov/apis/device/enforcement/)
+
+[warning letter database](https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/compliance-actions-and-activities/warning-letters)
+
+### Measurable
+One measure of success is that I was able to transform the database so it is in an easy format to work with and created a codebook that defined the variables so analysis can begin. Before completing this project, I did not expect it to be so hard to find official documentation on the different date variables on the FDA website.
+
+## Creating the Database
+### Getting the Recall Data from openFDA API
+
+I wanted to collect information on medical device recalls tracked by the FDA. I identified the recalls database as a key source of data for analyzing or predicting trends in the warning letter data because of my industry experience working in a medical device manufacturing company. Devices are recalled from the market, meaning that they are forbidden from being able to be sold to consumers, when they fail to meet quality standards set by the government. This can come from defective devices or inaccurate product labeling that produces a risk of patient harm. It makes sense that companies with more recalls of devices are subject to more government scrutiny and are more likely to be given a warning letter. An extension to this project might be to verify this assumption through further analysis of the databases.
+
+I used the device recall enforcement reports API endpoint because it is well-documented and maintained. Per their website, the data here contains publicly released recalls from 2004 – present day. It is also updated weekly with new recalls.
+
+An overview of the FDA recall enforcement database and additional information on how to use the openFDA API can be found on the FDA website below:
+https://open.fda.gov/apis/device/enforcement/
+
+
+The result of the API query is in JSON format. I converted this into a list format and excluded the metadata to show only the results. An excerpt is shown as output.
+
+
+```{r test API call, echo = T, include = TRUE}
 
 API_key <- 'MA7Lr5hXfkIWZLcdasrZ6Tf0U0zwPAPtZ1ijYVBA'
 start_date <- '2015-01-01' ##start date of recall search. Format is YYYY-MM-DD
 end_date <- '2015-12-31' ##end date of recall search. Format is YYYY-MM-DD
 daterange <- paste('[',start_date,'+TO+',end_date,']', sep="")
-##GET works, now make it changeable with API key and with changeable time periods
+##construct the URL to be changeable with API key and time periods
 url <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:',daterange,'&limit=100',sep = "")
-##url2 <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:[2015-01-01+TO+2016-12-31]&limit=100',sep = "")
-url2 <- paste('https://api.fda.gov/device/enforcement.json?api_key=', API_key, '&search=report_date:',daterange,'&limit=100&skip=100',sep = "")
+
 recalls_enforce <- GET(url)
-recalls_enforce
+
 recalls_enforce_data <- fromJSON(content(recalls_enforce,"text"), simplifyVector = F)
 recalls_enforce_data <- recalls_enforce_data$results
-##checked that recalls_enforce_data is list of 100 elements
+typeof(recalls_enforce_data)##checked that recalls_enforce_data is list of 100 elements
+length(recalls_enforce_data)
 ```
 
-## Iterating API calls to form one database for recalls
+### Iterating API Calls to Form One Database for Recalls
 
-I have written a script to create a database of recalls for a particular date range. It must comply with the API restrictions, which limits GET requests to 100 results per request. Furthermore, I signed up for an authentication key (API key) so the API limit is 240 requests per minute, per key. 120000 requests per day, per key. 
+I have written a script to create a database of recalls for a particular date range. It must comply with the API restrictions, which limits GET requests to 100 results per request. Furthermore, I signed up for an authentication key (API key) so the API limit is 240 requests per minute, per key. 120000 requests per day, per key.
+
 So far, after I limited my request results to be under 100, and have not experienced my API calls being slowed down or limited. If this changes in the future, I can introduce delays to the for loop that creates "database_recalls".
-I combined the lists of recalls into a database of recalls called "database_recalls". If you want to change the time period for the search of recalls, all you have to do is change the STARTDATE and ENDDATE global variables to the specific dates of interest. Make sure that ENDDATE comes after STARTDATE. 
-The warning that appears after running the code just indicates that 'more_code_info' column 19 is missing in some of the rows of database_recalls. It is acceptable to fil them with NA data for now.
-```{r pressure, echo=T}
+
+I combined each API call of recalls into a master list of recalls called "database_recalls," which is essentially a list of lists. Then, I flattened that list into a datatable that is easier to work with in R. I excluded column 14 (openFDA column) from the flattened database because it does not contain any data. According to the documentation of the API, the "device product recall enforcement reports will always have an empty openfda section." An excerpt of my recalls database is shown at the end of the code chunk
+
+If you want to change the time period for the search of recalls, all you have to do is change the STARTDATE and ENDDATE global variables to the specific dates of interest. Make sure that ENDDATE comes after STARTDATE. 
+
+The warning that appears after running the code just indicates that 'more_code_info' column 19 is missing in some of the rows of database_recalls. This is a optional data column that is not critical to analyses so it is acceptable to fill missing values with NA data for now.
+```{r loop, echo=T}
 
 ##function to construct the URL with the given parameters
 create_url <-  function(start_date, end_date, API_key, limit, skip) {
@@ -85,12 +126,25 @@ for (i in 1:ceiling(total_results/100)) {
 #find a way to flatten that list so that you can read the "recalling_firm" in each entry
 ##you need to rbind the long list database_recalls_2019 to a new dataframe
 database_flat <- lapply(1:length(database_recalls), function(x) database_recalls[[x]][-c(14)]) %>% rbindlist(fill = T)
+colnames(database_flat) ##full list of column variables in recall database
+view_partial <- database_flat %>% 
+  select(c(1:3,6:7,9))
+knitr::kable(head(view_partial,n = 3), format="html", caption = "Small Excerpt of Recalls Table") ##limit view so table fits  on 1 page
 ```
-## Creating the Warning Letters Database and Ensuring Data Integrity
+### Creating the Warning Letters Database and Ensuring Data Integrity for Databases
 
-match the names of the recall enforcement database to those of the companies issued warning letters.
+The database I am creating comes from the FDA website [here](https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/compliance-actions-and-activities/warning-letters).
 
-```{r match names}
+
+There is more than 5 years worth of data on warning letters provided from January 2014 to the present. There are around 3,000 rows of warning letters as of 04/29/2019, the date of the last update. The column variables are identified and explained in the codebook for the warning letter database in Appendix A.
+
+I kept the search fields empty and used the “Export Excel” feature of their webpage to retrieve the data. From there, I converted the excel workbook file to .csv format and ensured that the first row was the column names to create “Warning Letters  FDA.csv”. 
+
+Performing these preprocessing steps made it easier to manipulate the database using the dplyr package in R. I recoded the variables names in the database. Then, I filtered the database by only companies that manufactured medical devices. This left only a table with 77 warning letters as my “letter_companies” database. 
+
+I found one company name in this database that was also listed in the recalls database under recalling_firm. However, naming style did not match exactly, so I renamed one of the Company Name fields of the warning letter database to match exactly with the recalling_firm field.
+
+```{r warning letters, echo=T}
 ##read in the CSV for warning letters
 warningletter <- read_csv("Warning Letters  FDA.csv",col_names = T, 
                      na = "-1", col_types = cols(
@@ -123,6 +177,7 @@ temp <- str_subset(string = temp$issue_office, pattern = 'Device') ##this is wha
 letter_companies <- warningletter %>%
   filter(warningletter$letter_issue_date>=as.Date("2016-01-01") & warningletter$issue_office %in% temp) %>% 
   arrange(comp_name)
+knitr::kable(head(letter_companies,n = 3), format="html", caption = "Excerpt of Warning Letters Table")
 
 warn_list <- letter_companies$comp_name ##list of companies that have warning letters issued from medical device offices of FDA
 
@@ -130,30 +185,39 @@ bool_multiplewarns <- (length(warn_list) != length(unique(warn_list))) ##bool is
 
 ##check for mistyped company names data manually -> saw there are no mistyped names/duplicates in warn_list
 
+
+##check data integrity of recalls database
 ##create list of companies from recalls database (database_flat)
 companies <- database_flat %>% 
   count(recalling_firm) %>% 
   arrange(desc(n))
 companies <- companies$recalling_firm
 
-
-
-
-##turn the letter_companies database abbott st jude into format from recalls database
-##letter_companies is a dataframe, with comp_name column that is of type CHAR
+##turn the warning letter database field abbott (st jude) into format from recalls database
 temp_combo <- str_subset(string = companies, pattern = "Abbott")
-recode(letter_companies$comp_name,"Abbott (St Jude Medical Inc.)"=temp_combo[6]) ##is there a way to not type out what the warning letter name was to recode
-temp_combo <- str_subset(string = companies, pattern = "Zeller")
-#temp_combo
-##compare companies (from recalls database) to companies_2019$comp_name (from warning letters database)
-##our goal is to check each one of the 77 warning letter companies against recalls database companies, then recode them to the same name in recalls database if found
+letter_companies$comp_name <- (recode(letter_companies$comp_name,"Abbott (St Jude Medical Inc.)"=temp_combo[6])) ##recode the field
+knitr::kable(head(letter_companies,n = 3), format="html", caption = "Renamed Excerpt of Warning Letters Table")
 
-##clean up the database for recalls, see if any are duplicates
+##compare companies (from recalls database) to letter_companies$comp_name (from warning letters database)
+##check each one of the 77 warning letter companies against recalls database companies, then recode them to the same name in recalls database if found
+##cleaned up the database for recalls, see if any are duplicates
 temp_combo <- str_subset(string = companies, pattern = "Abbott")
 ##temp_combo[2:3]
 investigate <- database_flat[database_flat$recalling_firm == temp_combo[3]]
 
-
-##transforming date columns of database_flat into date objects
 ```
+## Conclusion
 
+### Achievable
+I was able to achieve my goal of creating and cleaning the recalls and warning letters dataset in the timeline given. Since I was working with a relatively smaller dataset this time around (less than 10k lines each), I was able to collect and transform the data quickly without reaching the limits of my computer. I found that it was much easier to work with a subset of the data to examine its structure quickly, before scaling my code to collect the entire database of interest
+
+### Relevant
+I work for a medical devices company, which shall remain anonymous, that has dealt with recalls and warning letters from the FDA. This project is both relevant to my interests and my job industry.
+
+### Timely
+I enjoy working in the medical devices sector, and find it interesting how FDA makes decisions on which companies get warning letters and which do not. Given the severe business consequences of receiving a warning letter, and the fact that my company is working through one currently, this project occurs in a timely manner for me. 
+
+### Reflections
+Doing this project allowed me to learn more about my industry and the regulations surrounding medical devices. One of the things I struggled with was learning about the terminology behind the variables in my database. I needed to research to gain more industry knowledge before I could format and pick out the variables of interest, such as which manufacturing site the recall came from. 
+
+I had no idea what factors the FDA considered before writing a warning letter to companies, partly because they do not share their criteria for making this decision publicly. If I had more time, I would try to find the connections between column "reason_for_recall" for recalls and the "subject" column for warning letters.
